@@ -8,108 +8,33 @@ st.set_page_config(
 )
 
 
-# 1. HÀM TỰ ĐỘNG KHỞI TẠO VÀ KHÔI PHỤC CSDL TỰ ĐỘNG
+# 1. HÀM KẾT NỐI & TỰ ĐỘNG BỔ SUNG CỘT CSDL NẾU THIẾU
 def get_connection():
   conn = sqlite3.connect("quanlythuvien.db")
   conn.execute("PRAGMA foreign_keys = ON;")
   cursor = conn.cursor()
 
-  # Kiểm tra tính tương thích của CSDL cũ, nếu không khớp tự động làm sạch
+  # Tự động đồng bộ cột NgayTraReality nếu DB gốc chưa có
   try:
-    cursor.execute("SELECT MaPhieuMuon FROM ChiTietPhieuMuon LIMIT 1")
+    cursor.execute("PRAGMA table_info(ChiTietPhieuMuon);")
+    cols = [row[1] for row in cursor.fetchall()]
+    if cols and "NgayTraReality" not in cols:
+      cursor.execute(
+          "ALTER TABLE ChiTietPhieuMuon ADD COLUMN NgayTraReality TEXT;"
+      )
+      if "NgayTraThucTe" in cols:
+        cursor.execute(
+            "UPDATE ChiTietPhieuMuon SET NgayTraReality = NgayTraThucTe;"
+        )
+      conn.commit()
   except Exception:
-    cursor.executescript("""
-            DROP TABLE IF EXISTS PhieuPhat;
-            DROP TABLE IF EXISTS ChiTietPhieuMuon;
-            DROP TABLE IF EXISTS PhieuMuon;
-            DROP TABLE IF EXISTS Sach;
-            DROP TABLE IF EXISTS DocGia;
-            DROP TABLE IF EXISTS TheLoai;
-        """)
-    conn.commit()
-
-  # Tạo bảng chuẩn 100% khớp với cấu trúc đề tài ban đầu
-  cursor.executescript("""
-        CREATE TABLE IF NOT EXISTS TheLoai (
-            MaTheLoai TEXT PRIMARY KEY,
-            TenTheLoai TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS Sach (
-            MaSach TEXT PRIMARY KEY,
-            TenSach TEXT NOT NULL,
-            MaTheLoai TEXT,
-            TacGia TEXT,
-            TongSoLuong INTEGER DEFAULT 1,
-            FOREIGN KEY (MaTheLoai) REFERENCES TheLoai(MaTheLoai)
-        );
-
-        CREATE TABLE IF NOT EXISTS DocGia (
-            MaDocGia TEXT PRIMARY KEY,
-            HoTen TEXT NOT NULL,
-            Lop TEXT,
-            Email TEXT
-        );
-
-        CREATE TABLE IF NOT EXISTS PhieuMuon (
-            MaPhieuMuon TEXT PRIMARY KEY,
-            MaDocGia TEXT,
-            NgayMuon TEXT,
-            NgayTraDuKien TEXT,
-            TrangThai TEXT DEFAULT 'DangMuon',
-            FOREIGN KEY (MaDocGia) REFERENCES DocGia(MaDocGia)
-        );
-
-        CREATE TABLE IF NOT EXISTS ChiTietPhieuMuon (
-            MaChiTiet INTEGER PRIMARY KEY AUTOINCREMENT,
-            MaPhieuMuon TEXT,
-            MaSach TEXT,
-            SoLuong INTEGER DEFAULT 1,
-            NgayTraReality TEXT,
-            FOREIGN KEY (MaPhieuMuon) REFERENCES PhieuMuon(MaPhieuMuon),
-            FOREIGN KEY (MaSach) REFERENCES Sach(MaSach)
-        );
-
-        CREATE TABLE IF NOT EXISTS PhieuPhat (
-            MaPhieuPhat TEXT PRIMARY KEY,
-            MaPhieuMuon TEXT,
-            MaDocGia TEXT,
-            SoTienPhat REAL,
-            LyDoPhat TEXT,
-            TrangThaiThanhToan TEXT DEFAULT 'ChuaThanhToan',
-            FOREIGN KEY (MaPhieuMuon) REFERENCES PhieuMuon(MaPhieuMuon),
-            FOREIGN KEY (MaDocGia) REFERENCES DocGia(MaDocGia)
-        );
-    """)
-
-  # Nạp dữ liệu mẫu nếu chưa có
-  cursor.execute("SELECT COUNT(*) FROM Sach")
-  if cursor.fetchone() == 0:
-    cursor.executescript("""
-            INSERT INTO TheLoai VALUES ('TL01', 'Giáo trình CNTT'), ('TL02', 'Khoa học máy tính'), ('TL03', 'Kỹ năng sống');
-            INSERT INTO Sach VALUES 
-                ('S01', 'Lập trình Python cơ bản', 'TL01', 'Nguyễn Văn A', 10),
-                ('S02', 'Cơ sở dữ liệu SQL', 'TL01', 'Trần Thị B', 5),
-                ('S03', 'Kinh tế vĩ mô', 'TL02', 'Lê Văn C', 8),
-                ('S04', 'Dế Mèn Phiêu Lưu Ký', 'TL03', 'Tô Hoài', 15);
-            INSERT INTO DocGia VALUES 
-                ('DG01', 'Từ Thiện Nhân', 'CS201K', 'nhantuthien@gmail.com'),
-                ('DG02', 'Trần Thị Thu', 'CS201I', 'tranthithu@gmail.com');
-            INSERT INTO PhieuMuon VALUES ('PM01', 'DG01', '2026-10-01', '2026-10-08', 'DangMuon');
-            INSERT INTO ChiTietPhieuMuon (MaPhieuMuon, MaSach, SoLuong, NgayTraReality) VALUES ('PM01', 'S01', 1, NULL);
-            INSERT INTO PhieuPhat VALUES ('PP01', 'PM01', 'DG01', 20000.0, 'Trả sách quá hạn 2 ngày', 'ChuaThanhToan');
-        """)
-    conn.commit()
+    pass
 
   return conn
 
 
-# Header ứng dụng
 st.title("📚 HỆ THỐNG QUẢN LÝ THƯ VIỆN")
-st.caption(
-    "Đồ án môn CS201 - Tin học ứng dụng | Môi trường: Fedora Linux & Streamlit"
-    " Cloud"
-)
+st.caption("Đồ án môn CS201 - Tin học ứng dụng | Môi trường: Fedora Linux")
 
 menu = st.sidebar.selectbox("Chọn chức năng", [
     "1. Danh mục sách & Tồn kho",
@@ -128,7 +53,7 @@ if menu == "1. Danh mục sách & Tồn kho":
                    (S.TongSoLuong - COALESCE(SUM(CT.SoLuong), 0)) AS SoLuongCon
             FROM Sach S
             LEFT JOIN TheLoai TL ON S.MaTheLoai = TL.MaTheLoai
-            LEFT JOIN ChiTietPhieuMuon CT ON S.MaSach = CT.MaSach AND CT.NgayTraReality IS NULL
+            LEFT JOIN ChiTietPhieuMuon CT ON S.MaSach = CT.MaSach AND (CT.NgayTraReality IS NULL OR CT.NgayTraReality = '')
             GROUP BY S.MaSach, S.TenSach, TL.TenTheLoai, S.TacGia, S.TongSoLuong;
         """, conn)
     st.dataframe(df, use_container_width=True)
@@ -141,12 +66,25 @@ elif menu == "2. Lập phiếu mượn sách":
     col1, col2 = st.columns(2)
     ma_phieu = col1.text_input("Mã phiếu mượn (Ví dụ: PM005)")
 
-    doc_gia_df = pd.read_sql_query("SELECT MaDocGia, HoTen FROM DocGia", conn)
-    dg_dict = (
-        dict(zip(doc_gia_df["HoTen"], doc_gia_df["MaDocGia"]))
-        if not doc_gia_df.empty
-        else {}
-    )
+    try:
+      doc_gia_df = pd.read_sql_query(
+          "SELECT MaDocGia, HoTen FROM DocGia", conn
+      )
+      dg_dict = (
+          dict(zip(doc_gia_df["HoTen"], doc_gia_df["MaDocGia"]))
+          if not doc_gia_df.empty
+          else {}
+      )
+    except Exception:
+      doc_gia_df = pd.read_sql_query(
+          "SELECT MaDocGia, TenDocGia FROM DocGia", conn
+      )
+      dg_dict = (
+          dict(zip(doc_gia_df["TenDocGia"], doc_gia_df["MaDocGia"]))
+          if not doc_gia_df.empty
+          else {}
+      )
+
     selected_dg = (
         col2.selectbox("Chọn độc giả", list(dg_dict.keys())) if dg_dict else None
     )
@@ -204,7 +142,7 @@ elif menu == "3. Trả sách & Phạt":
             JOIN PhieuMuon PM ON CT.MaPhieuMuon = PM.MaPhieuMuon
             JOIN DocGia DG ON PM.MaDocGia = DG.MaDocGia
             JOIN Sach S ON CT.MaSach = S.MaSach
-            WHERE CT.NgayTraReality IS NULL
+            WHERE CT.NgayTraReality IS NULL OR CT.NgayTraReality = ''
         """, conn)
 
     if df_muon.empty:
@@ -222,6 +160,14 @@ elif menu == "3. Trả sách & Phạt":
             " ?",
             (today_str, pm_sel),
         )
+        try:
+          cursor.execute(
+              "UPDATE ChiTietPhieuMuon SET NgayTraThucTe = ? WHERE MaPhieuMuon"
+              " = ?",
+              (today_str, pm_sel),
+          )
+        except Exception:
+          pass
         cursor.execute(
             "UPDATE PhieuMuon SET TrangThai = 'DaTra' WHERE MaPhieuMuon = ?",
             (pm_sel,),
@@ -247,12 +193,14 @@ elif menu == "4. Báo cáo & Query":
         """, conn)
     st.table(df_top)
   else:
-    df_phat = pd.read_sql_query("""
-            SELECT PP.MaPhieuPhat, PP.MaPhieuMuon, DG.HoTen, PP.SoTienPhat, PP.LyDoPhat, PP.TrangThaiThanhToan
-            FROM PhieuPhat PP
-            JOIN DocGia DG ON PP.MaDocGia = DG.MaDocGia;
-        """, conn)
+    try:
+      df_phat = pd.read_sql_query("""
+                SELECT PP.MaPhieuPhat, PP.MaPhieuMuon, DG.HoTen, PP.SoTienPhat, PP.LyDoPhat, PP.TrangThaiThanhToan
+                FROM PhieuPhat PP
+                JOIN DocGia DG ON PP.MaDocGia = DG.MaDocGia;
+            """, conn)
+    except Exception:
+      df_phat = pd.read_sql_query("SELECT * FROM PhieuPhat", conn)
     st.table(df_phat)
 
 conn.close()
-
