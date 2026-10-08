@@ -143,3 +143,168 @@ elif menu == "3. Báo Cáo & Phiếu Phạt":
     st.dataframe(phieu_phat, use_container_width=True)
 
 conn.close()
+import streamlit as st
+import sqlite3
+import pandas as pd
+from datetime import datetime
+
+# 1. Cấu hình trang
+st.set_page_config(
+    page_title="Hệ Thống Quản Lý Thư Viện",
+    page_icon="📚",
+    layout="wide"
+)
+
+# 2. CHÈN HÌNH NỀN TRƯỜNG BẰNG CSS
+# 💡 BẠN THAY ĐƯỜNG LINK ẢNH TRƯỜNG BẠN VÀO DÒNG 'background-image' DƯỚI ĐÂY:
+background_image_url = "https://files02.duytan.edu.vn/svruploads/news-duytan/uploads/media/408_256/images/19ds2-14.jpg" # <--- Thay link ảnh trường vào đây
+
+custom_css = f"""
+<style>
+    /* Hình nền toàn bộ ứng dụng */
+    .stApp {{
+        background: linear-gradient(rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.85)), 
+                    url('{background_image_url}');
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
+    }}
+    
+    /* Làm đẹp các thẻ Card / Box */
+    .metric-card {{
+        background-color: #ffffff;
+        padding: 15px;
+        border-radius: 10px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        text-align: center;
+    }}
+</style>
+"""
+st.markdown(custom_css, unsafe_allow_html=True)
+
+# Hàm kết nối CSDL
+def get_connection():
+    conn = sqlite3.connect('quanlythuvien.db')
+    conn.execute("PRAGMA foreign_keys = ON;")
+    return conn
+
+# Header ứng dụng
+st.title("📚 HỆ THỐNG QUẢN LÝ THƯ VIỆN")
+st.caption("Đồ án môn CS201 - Tin học ứng dụng | Môi trường: Fedora Linux & Streamlit Cloud")
+
+# 3. HÀNG THỐNG KÊ KPI (Dashboard Overview)
+conn = get_connection()
+try:
+    total_books = pd.read_sql_query("SELECT SUM(TongSoLuong) AS Total FROM Sach", conn)['Total'].iloc[0] or 0
+    total_borrowed = pd.read_sql_query("SELECT COUNT(*) AS Count FROM ChiTietPhieuMuon WHERE NgayTra Reality IS NULL", conn)['Count'].iloc[0] or 0
+    overdue_count = pd.read_sql_query("SELECT COUNT(*) AS Count FROM PhieuPhat", conn)['Count'].iloc[0] or 0
+except:
+    total_books, total_borrowed, overdue_count = 0, 0, 0
+conn.close()
+
+col1, col2, col3 = st.columns(3)
+col1.metric(label="📖 Tổng số sách trong kho", value=f"{total_books:,} cuốn")
+col2.metric(label="🔄 Lượt sách đang mượn", value=f"{total_borrowed} lượt")
+col3.metric(label="⚠️ Lượt vi phạm / Phạt quá hạn", value=f"{overdue_count} lượt", delta_color="inverse")
+
+st.divider()
+
+# 4. GIAO DIỆN TAB CHỨC NĂNG NGANG
+tab1, tab2, tab3, tab4 = st.tabs(["📊 Tổng quan kho sách", "📖 Mượn sách", "🔄 Trả sách", "🔍 Báo cáo & Query"])
+
+# TAB 1: Danh sách sách
+with tab1:
+    st.subheader("📚 Danh mục sách hiện có")
+    conn = get_connection()
+    df_sach = pd.read_sql_query("""
+        SELECT S.MaSach, S.TenSach, TL.TenTheLoai, S.TacGia, S.TongSoLuong, 
+               (S.TongSoLuong - COALESCE(COUNT(CT.MaPhieu), 0)) AS SoLuongCon
+        FROM Sach S
+        LEFT JOIN TheLoai TL ON S.MaTheLoai = TL.MaTheLoai
+        LEFT JOIN ChiTietPhieuMuon CT ON S.MaSach = CT.MaSach AND CT.NgayTraReality IS NULL
+        GROUP BY S.MaSach;
+    """, conn)
+    conn.close()
+    st.dataframe(df_sach, use_container_width=True)
+
+# TAB 2: Lập phiếu mượn
+with tab2:
+    st.subheader("📝 Lập phiếu mượn sách mới")
+    with st.form("borrow_form"):
+        col_a, col_b = st.columns(2)
+        ma_phieu = col_a.text_input("Mã phiếu mượn (Ví dụ: PM005)")
+        ma_doc_gia = col_b.text_input("Mã độc giả (Ví dụ: DG001)")
+        
+        conn = get_connection()
+        sach_df = pd.read_sql_query("SELECT MaSach, TenSach FROM Sach", conn)
+        conn.close()
+        
+        sach_dict = dict(zip(sach_df['TenSach'], sach_df['MaSach']))
+        selected_book = st.selectbox("Chọn sách cần mượn", list(sach_dict.keys())) if not sach_df.empty else None
+        
+        ngay_muon = st.date_input("Ngày mượn", datetime.now())
+        ngay_tra_hen = st.date_input("Ngày hẹn trả", datetime.now())
+        
+        submitted = st.form_submit_button("Xác nhận mượn sách")
+        if submitted:
+            if not ma_phieu or not ma_doc_gia or not selected_book:
+                st.error("❌ Vui lòng điền đầy đủ thông tin!")
+            else:
+                try:
+                    conn = get_connection()
+                    cursor = conn.cursor()
+                    cursor.execute("INSERT INTO PhieuMuon VALUES (?, ?, ?)", (ma_phieu, ma_doc_gia, ngay_muon.strftime('%Y-%m-%d')))
+                    cursor.execute("INSERT INTO ChiTietPhieuMuon (MaPhieu, MaSach, NgayTraHen) VALUES (?, ?, ?)", 
+                                   (ma_phieu, sach_dict[selected_book], ngay_tra_hen.strftime('%Y-%m-%d')))
+                    conn.commit()
+                    conn.close()
+                    st.success("✅ Mượn sách thành công! Dữ liệu đã lưu vào SQLite.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Lỗi mượn sách: {e}")
+
+# TAB 3: Trả sách & Tính phạt
+with tab3:
+    st.subheader("🔄 Xử lý trả sách")
+    conn = get_connection()
+    df_dang_muon = pd.read_sql_query("""
+        SELECT CT.MaPhieu, S.TenSach, PM.MaDocGia, CT.NgayTraHen 
+        FROM ChiTietPhieuMuon CT
+        JOIN PhieuMuon PM ON CT.MaPhieu = PM.MaPhieu
+        JOIN Sach S ON CT.MaSach = S.MaSach
+        WHERE CT.NgayTraReality IS NULL
+    """, conn)
+    conn.close()
+    
+    if df_dang_muon.empty:
+        st.info("Hiện không có phiếu mượn nào chưa trả.")
+    else:
+        st.dataframe(df_dang_muon, use_container_width=True)
+        pm_chon = st.selectbox("Chọn Mã phiếu mượn cần trả", df_dang_muon['MaPhieu'].unique())
+        if st.button("Xác nhận trả sách"):
+            conn = get_connection()
+            cursor = conn.cursor()
+            today = datetime.now().strftime('%Y-%m-%d')
+            cursor.execute("UPDATE ChiTietPhieuMuon SET NgayTraReality = ? WHERE MaPhieu = ?", (today, pm_chon))
+            conn.commit()
+            conn.close()
+            st.success(f"✅ Đã trả sách cho phiếu {pm_chon}!")
+            st.rerun()
+
+# TAB 4: Báo cáo & Queries
+with tab4:
+    st.subheader("🔍 Truy vấn báo cáo nâng cao (Advanced SQL)")
+    q_type = st.radio("Chọn báo cáo cần xem:", ["Top 3 sách mượn nhiều nhất", "Danh sách phiếu phạt quá hạn"])
+    conn = get_connection()
+    if q_type == "Top 3 sách mượn nhiều nhất":
+        df_top = pd.read_sql_query("""
+            SELECT S.TenSach, COUNT(CT.MaPhieu) AS SoLuotMuon
+            FROM Sach S
+            JOIN ChiTietPhieuMuon CT ON S.MaSach = CT.MaSach
+            GROUP BY S.MaSach ORDER BY SoLuotMuon DESC LIMIT 3
+        """, conn)
+        st.table(df_top)
+    else:
+        df_phat = pd.read_sql_query("SELECT * FROM PhieuPhat", conn)
+        st.table(df_phat)
+    conn.close()
