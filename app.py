@@ -11,7 +11,7 @@ st.set_page_config(
 )
 
 # 2. CHÈN HÌNH NỀN BẰNG CSS (Thay link ảnh trường bạn vào đây nếu muốn)
-background_image_url = "https://images.unsplash.com/photo-1541829070764-84a7d30dd3f3?q=80&w=1920"
+background_image_url = "https://ep-fd-files02-duytan-fqa4dvfcdadxbebg.a02.azurefd.net/svruploads/dtu-duytan/upload/images/25-10-2017-15-17-40-30.jpg"
 
 custom_css = f"""
 <style>
