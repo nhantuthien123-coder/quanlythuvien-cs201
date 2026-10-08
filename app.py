@@ -57,8 +57,10 @@ if menu == "1. Danh mục sách & Tồn kho":
             GROUP BY S.MaSach, S.TenSach, TL.TenTheLoai, S.TacGia, S.TongSoLuong;
         """, conn)
     st.dataframe(df, use_container_width=True)
-  except Exception as e:
-    st.error(f"Lỗi truy vấn: {e}")
+  except sqlite3.IntegrityError:
+  st.error("⚠️ Mã phiếu mượn này đã tồn tại! Vui lòng nhập mã phiếu khác.")
+except Exception as e:
+  st.error(f"❌ Lỗi lập phiếu: {e}")
 
 elif menu == "2. Lập phiếu mượn sách":
   st.subheader("📝 Lập phiếu mượn sách")
