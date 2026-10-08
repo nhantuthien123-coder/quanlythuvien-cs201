@@ -25,12 +25,13 @@ custom_css = f"""
 st.markdown(custom_css, unsafe_allow_html=True)
 
 
-# 3. HÀM TỰ ĐỘNG KHỞI TẠO BẢNG & DỮ LIỆU
+# 3. HÀM TỰ ĐỘNG KHỞI TẠO BẢNG & ĐỒNG BỘ CỘT CSDL (TỰ SỬA LỖI SCHEMA)
 def get_connection():
   conn = sqlite3.connect("quanlythuvien.db")
   conn.execute("PRAGMA foreign_keys = ON;")
   cursor = conn.cursor()
 
+  # Tạo cấu trúc 6 bảng chuẩn nếu chưa có
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS TheLoai (
             MaTheLoai TEXT PRIMARY KEY,
@@ -84,7 +85,25 @@ def get_connection():
         );
     """)
 
-  # Nạp dữ liệu mẫu nếu chưa có
+  # TỰ ĐỘNG KIỂM TRA VÀ ĐỒNG BỘ CỘT NẾU CSDL CŨ DÙNG TÊN CỘT KHÁC (NgayTraReality)
+  try:
+    cursor.execute("PRAGMA table_info(ChiTietPhieuMuon);")
+    cols = [row[1] for row in cursor.fetchall()]
+    if "NgayTraThucTe" not in cols:
+      if "NgayTraReality" in cols:
+        cursor.execute(
+            "ALTER TABLE ChiTietPhieuMuon RENAME COLUMN NgayTraReality TO"
+            " NgayTraThucTe;"
+        )
+      else:
+        cursor.execute(
+            "ALTER TABLE ChiTietPhieuMuon ADD COLUMN NgayTraThucTe TEXT;"
+        )
+      conn.commit()
+  except Exception:
+    pass
+
+  # Nạp dữ liệu mẫu nếu bảng Sach chưa có dữ liệu
   cursor.execute("SELECT COUNT(*) FROM Sach")
   if cursor.fetchone()[0] == 0:
     cursor.executemany(
@@ -189,7 +208,7 @@ with tab1:
         FROM Sach S
         LEFT JOIN TheLoai TL ON S.MaTheLoai = TL.MaTheLoai
         LEFT JOIN ChiTietPhieuMuon CT ON S.MaSach = CT.MaSach AND CT.NgayTraThucTe IS NULL
-        GROUP BY S.MaSach;
+        GROUP BY S.MaSach, S.TenSach, TL.TenTheLoai, S.TacGia, S.TongSoLuong;
     """, conn)
   conn.close()
   st.dataframe(df_sach, use_container_width=True)
@@ -294,7 +313,7 @@ with tab4:
             SELECT S.TenSach, COUNT(CT.MaPhieu) AS SoLuotMuon
             FROM Sach S
             JOIN ChiTietPhieuMuon CT ON S.MaSach = CT.MaSach
-            GROUP BY S.MaSach ORDER BY SoLuotMuon DESC LIMIT 3
+            GROUP BY S.MaSach, S.TenSach ORDER BY SoLuotMuon DESC LIMIT 3
         """, conn)
     st.table(df_top)
   else:
